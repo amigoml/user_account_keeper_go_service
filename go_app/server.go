@@ -18,39 +18,39 @@ type server struct {
 }
 
 type user struct {
-	User_id int
-	Amount  int
+	UserId int
+	Amount int
 }
 
-type account_keeper struct {
+type accountKeeper struct {
 	Users []user
 }
 
-type history_entry struct {
-	User_id    int
-	Is_debit   bool
-	Amount     int
-	Trans_time time.Time
+type historyEntry struct {
+	UserId  int
+	IsDebit bool
+	Amount    int
+	TransTime time.Time
 }
 
 type history struct {
-	Histories []history_entry
+	Histories []historyEntry
 }
 
 func returnErr(s string, w http.ResponseWriter) {
 	w.WriteHeader(http.StatusInternalServerError)
-	w.Write([]byte(s))
+	w.Write([]byte(`{"Response": "`+ s + `"}`))
 }
 
-func (s *server) get_balance(w http.ResponseWriter, r *http.Request) {
+func (s *server) getBalance(w http.ResponseWriter, r *http.Request) {
 	queryString := r.URL.Query()
-	user_id, err := strconv.Atoi(queryString.Get("user_id"))
+	userId, err := strconv.Atoi(queryString.Get("user_id"))
 	if err != nil {
 		returnErr("there is no user_id in request", w)
 		return
 	}
-	var _user_id, amount int
-	err = s.db.QueryRow(`SELECT "user_id", "amount" FROM "users" where "user_id"=$1`, user_id).Scan(&_user_id, &amount)
+	var _userId, _amount int
+	err = s.db.QueryRow(`SELECT "user_id", "amount" FROM "users" where "user_id"=$1`, userId).Scan(&_userId, &_amount)
 	switch {
 	case err == sql.ErrNoRows:
 		returnErr("there is no rows with given user_id", w)
@@ -59,53 +59,59 @@ func (s *server) get_balance(w http.ResponseWriter, r *http.Request) {
 		returnErr("some problems in db query", w)
 		return
 	}
-	users_res := account_keeper{Users: []user{user{User_id: user_id, Amount: amount}}}
-	response, err := json.Marshal(users_res)
+	usersRes := accountKeeper{Users: []user{user{UserId: userId, Amount: _amount}}}
+	response, err := json.Marshal(usersRes)
 	if err != nil {
 		returnErr("err in result marshaling", w)
 		return
 	}
+	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(response)
 }
 
-func (s *server) get_user_history(w http.ResponseWriter, r *http.Request) {
+func (s *server) getUserHistory(w http.ResponseWriter, r *http.Request) {
 	queryString := r.URL.Query()
-	user_id, err1 := strconv.Atoi(queryString.Get("user_id"))
-	last_n_operations, err2 := strconv.Atoi(queryString.Get("n_last_operations"))
+	userId, err1 := strconv.Atoi(queryString.Get("user_id"))
+	lastNOperations, err2 := strconv.Atoi(queryString.Get("n_last_operations"))
 	if err1 != nil || err2 != nil {
 		returnErr("there is no user_id in request or n_last_operations", w)
 		return
 	}
-	var _user_id, amount int
-	var is_debit bool
-	var t time.Time
-	history_res := history{}
-	history_res.Histories = make([]history_entry, 0)
+	var _userId, _amount int
+	var _isDebit bool
+	var _time time.Time
+	historyRes := history{}
+	historyRes.Histories = make([]historyEntry, 0)
 	row, err := s.db.Query(`SELECT user_id, is_debit, amount, time FROM "history" where "user_id"=$1 ORDER BY id DESC LIMIT $2`,
-		user_id, last_n_operations)
+		userId, lastNOperations)
 	if err != nil {
 		returnErr("some problems in request to db", w)
 		return
 	}
 	defer row.Close()
 	for row.Next() {
-		row.Scan(&_user_id, &is_debit, &amount, &t)
-		tmp_hist := history_entry{_user_id, is_debit, amount, t}
-		history_res.Histories = append(history_res.Histories, tmp_hist)
+		err := row.Scan(&_userId, &_isDebit, &_amount, &_time)
+		if err != nil {
+			returnErr("some problems in scanning row", w)
+			return
+		}
+		_tmpHist := historyEntry{_userId, _isDebit, _amount, _time}
+		historyRes.Histories = append(historyRes.Histories, _tmpHist)
 	}
-	response, err := json.Marshal(history_res)
+	response, err := json.Marshal(historyRes)
 	if err != nil {
 		returnErr("err in result marshaling", w)
 		return
 	}
+	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(response)
 }
 
-func (s *server) isUserCreated(user_id int) (bool, error) {
+func (s *server) isUserCreated(userId int) (bool, error) {
 	var u, a int
-	err := s.db.QueryRow(`SELECT "user_id", "amount" FROM "users" where "user_id"=$1`, user_id).Scan(&u, &a)
+	err := s.db.QueryRow(`SELECT "user_id", "amount" FROM "users" where "user_id"=$1`, userId).Scan(&u, &a)
 	switch {
 	case err == sql.ErrNoRows:
 		return false, nil
@@ -115,51 +121,52 @@ func (s *server) isUserCreated(user_id int) (bool, error) {
 	return true, nil
 }
 
-func (s *server) top_up_balance(w http.ResponseWriter, r *http.Request) {
+func (s *server) topUpBalance(w http.ResponseWriter, r *http.Request) {
 	queryString := r.URL.Query()
-	user_id, err1 := strconv.Atoi(queryString.Get("user_id"))
-	accrued_amount, err2 := strconv.Atoi(queryString.Get("accrued_amount"))
-	if err1 != nil || err2 != nil || accrued_amount <= 0 {
+	userId, err1 := strconv.Atoi(queryString.Get("user_id"))
+	accruedAmount, err2 := strconv.Atoi(queryString.Get("accrued_amount"))
+	if err1 != nil || err2 != nil || accruedAmount <= 0 {
 		returnErr("there is no user_id or accrued_amount in request", w)
 		return
 	}
-	current_time := time.Now()
-	is_user_created, err := s.isUserCreated(user_id)
+	currentTime := time.Now()
+	isUserCreated, err := s.isUserCreated(userId)
 	if err != nil {
 		returnErr("some problems in db query", w)
 		return
 	}
-	if is_user_created {
-		_, err1 = s.db.Exec(`UPDATE "users" set "amount"="amount" + $1 where "user_id"=$2`, accrued_amount, user_id)
+	if isUserCreated {
+		_, err1 = s.db.Exec(`UPDATE "users" set "amount"="amount" + $1 where "user_id"=$2`, accruedAmount, userId)
 		if err1 != nil {
 			returnErr("problems in updating result ", w)
 			return
 		}
 	} else {
-		_, err1 = s.db.Exec(`INSERT INTO "users" (user_id, amount) VALUES ($1, $2)`, user_id, accrued_amount)
+		_, err1 = s.db.Exec(`INSERT INTO "users" (user_id, amount) VALUES ($1, $2)`, userId, accruedAmount)
 		if err1 != nil {
 			returnErr("problems in inserting result ", w)
 			return
 		}
 	}
 	_, err = s.db.Exec(`INSERT INTO "history" (user_id, is_debit, amount, time) VALUES ($1, $2, $3, $4)`,
-		user_id, false, accrued_amount, current_time)
+		userId, false, accruedAmount, currentTime)
 	if err != nil {
 		returnErr("problems in inserting history table", w)
 		return
 	}
-	w.Write([]byte("ok"))
+	w.WriteHeader(http.StatusCreated)
+	w.Write([]byte(`{"Response": "ok" }`))
 }
 
-func (s *server) write_off_money(w http.ResponseWriter, r *http.Request) {
+func (s *server) writeOffMoney(w http.ResponseWriter, r *http.Request) {
 	queryString := r.URL.Query()
-	user_id, err1 := strconv.Atoi(queryString.Get("user_id"))
-	debited_amount, err2 := strconv.Atoi(queryString.Get("debited_amount"))
-	if err1 != nil || err2 != nil || debited_amount <= 0 {
+	userId, err1 := strconv.Atoi(queryString.Get("user_id"))
+	debitedAmount, err2 := strconv.Atoi(queryString.Get("debited_amount"))
+	if err1 != nil || err2 != nil || debitedAmount <= 0 {
 		returnErr("there is no user_id or debited_amount in request", w)
 		return
 	}
-	current_time := time.Now()
+	currentTime := time.Now()
 	ctx := context.Background()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -167,28 +174,28 @@ func (s *server) write_off_money(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	var _user_id, _amount_user int
+	var _userId, _amountUser int
 	err1 = tx.QueryRowContext(ctx, `SELECT "user_id", "amount" FROM "users" where "user_id"=$1 FOR UPDATE`,
-		user_id).Scan(&_user_id, &_amount_user)
+		userId).Scan(&_userId, &_amountUser)
 	switch {
 	case err1 == sql.ErrNoRows:
-		returnErr("there is no user_id "+strconv.Itoa(user_id), w)
+		returnErr("there is no user_id "+strconv.Itoa(userId), w)
 		return
 	case err1 != nil:
 		returnErr("some problems in request to db", w)
 		return
 	}
-	if _amount_user < debited_amount {
+	if _amountUser < debitedAmount {
 		returnErr("ABORT: User amount should be greater or equal than debited_amount", w)
 		return
 	}
-	_, err1 = tx.ExecContext(ctx, `UPDATE "users" set "amount"="amount" - $1 where "user_id"=$2`, debited_amount, user_id)
+	_, err1 = tx.ExecContext(ctx, `UPDATE "users" set "amount"="amount" - $1 where "user_id"=$2`, debitedAmount, userId)
 	if err1 != nil {
 		returnErr("problems on setting res to db", w)
 		return
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO "history" (user_id, is_debit, amount, time) VALUES ($1, $2, $3, $4)`,
-		user_id, true, debited_amount, current_time)
+		userId, true, debitedAmount, currentTime)
 	if err != nil {
 		returnErr("problems in updating history table", w)
 		return
@@ -197,19 +204,20 @@ func (s *server) write_off_money(w http.ResponseWriter, r *http.Request) {
 		returnErr("transaction problem", w)
 		return
 	}
-	w.Write([]byte("ok"))
+	w.WriteHeader(http.StatusCreated)
+	w.Write([]byte(`{"Response": "ok" }`))
 }
 
-func (s *server) transfer_money(w http.ResponseWriter, r *http.Request) {
+func (s *server) transferMoney(w http.ResponseWriter, r *http.Request) {
 	queryString := r.URL.Query()
-	from_user_id, err1 := strconv.Atoi(queryString.Get("from_user_id"))
-	to_user_id, err2 := strconv.Atoi(queryString.Get("to_user_id"))
+	fromUserId, err1 := strconv.Atoi(queryString.Get("from_user_id"))
+	toUserId, err2 := strconv.Atoi(queryString.Get("to_user_id"))
 	amount, err3 := strconv.Atoi(queryString.Get("amount"))
 	if err1 != nil || err2 != nil || err3 != nil || amount <= 0 {
 		returnErr("there is no user_id or update_amount in request", w)
 		return
 	}
-	current_time := time.Now()
+	currentTime := time.Now()
 	ctx := context.Background()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -217,27 +225,27 @@ func (s *server) transfer_money(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	var _user_id_1, _user_id_2, amount_user_from, amount_user_to int
+	var _userId1, _userId2, amountUserFrom, _amountUserTo int
 	err1 = tx.QueryRowContext(ctx, `SELECT "user_id", "amount" FROM "users" where "user_id"=$1 FOR UPDATE`,
-		from_user_id).Scan(&_user_id_1, &amount_user_from)
+		fromUserId).Scan(&_userId1, &amountUserFrom)
 	if err1 == sql.ErrNoRows {
-		returnErr("there is no from_user_id "+strconv.Itoa(from_user_id), w)
+		returnErr("there is no from_user_id "+strconv.Itoa(fromUserId), w)
 		return
 	}
 	if err1 != nil {
 		returnErr("some problems in request to db", w)
 		return
 	}
-	if amount_user_from < amount {
+	if amountUserFrom < amount {
 		returnErr("ABORT: Amount at from_user should be greater or equal than update_amount", w)
 		return
 	}
 
 	err2 = tx.QueryRowContext(ctx, `SELECT "user_id", "amount" FROM "users" where "user_id"=$1 FOR UPDATE`,
-		to_user_id).Scan(&_user_id_2, &amount_user_to)
-	is_no_to_user_id := false
+		toUserId).Scan(&_userId2, &_amountUserTo)
+	isNotExistedToUserId := false
 	if err2 == sql.ErrNoRows {
-		is_no_to_user_id = true
+		isNotExistedToUserId = true
 	}
 	if err2 != nil && err2 != sql.ErrNoRows {
 		returnErr("some problems in request to db", w)
@@ -245,24 +253,24 @@ func (s *server) transfer_money(w http.ResponseWriter, r *http.Request) {
 	}
 	// 	fmt.Println("sleep")
 	// 	time.Sleep(20 * time.Second)
-	_, err1 = tx.ExecContext(ctx, `UPDATE "users" set "amount"="amount" - $1 where "user_id"=$2`, amount, from_user_id)
-	if is_no_to_user_id {
-		_, err2 = tx.ExecContext(ctx, `INSERT INTO "users" (user_id, amount) VALUES ($1, $2)`, to_user_id, amount)
+	_, err1 = tx.ExecContext(ctx, `UPDATE "users" set "amount"="amount" - $1 where "user_id"=$2`, amount, fromUserId)
+	if isNotExistedToUserId {
+		_, err2 = tx.ExecContext(ctx, `INSERT INTO "users" (user_id, amount) VALUES ($1, $2)`, toUserId, amount)
 	} else {
-		_, err2 = tx.ExecContext(ctx, `UPDATE "users" set "amount"="amount" + $1 where "user_id"=$2`, amount, to_user_id)
+		_, err2 = tx.ExecContext(ctx, `UPDATE "users" set "amount"="amount" + $1 where "user_id"=$2`, amount, toUserId)
 	}
 	if err1 != nil || err2 != nil {
 		returnErr("problems on setting res to db", w)
 		return
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO "history" (user_id, is_debit, amount, time) VALUES ($1, $2, $3, $4)`,
-		from_user_id, true, amount, current_time)
+		fromUserId, true, amount, currentTime)
 	if err != nil {
 		returnErr("problems in updating history table", w)
 		return
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO "history" (user_id, is_debit, amount, time) VALUES ($1, $2, $3, $4)`,
-		to_user_id, false, amount, current_time)
+		toUserId, false, amount, currentTime)
 	if err != nil {
 		returnErr("problems in updating history table", w)
 		return
@@ -271,26 +279,24 @@ func (s *server) transfer_money(w http.ResponseWriter, r *http.Request) {
 		returnErr("transaction problem", w)
 		return
 	}
-	w.Write([]byte("ok"))
+	w.Write([]byte(`{"Response": "ok" }`))
 }
 
 func main() {
-	db, err := sql.Open("postgres", "host=postgres port=5432 user=postgres password=postgres dbname=account_keeper sslmode=disable")
+	db, err := sql.Open("postgres",
+		"host=postgres port=5432 user=postgres password=postgres dbname=account_keeper sslmode=disable")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 	s := server{db: db}
-	http.HandleFunc("/get_balance", s.get_balance)
-	http.HandleFunc("/get_user_history", s.get_user_history)
-	http.HandleFunc("/top_up_balance", s.top_up_balance)
-	http.HandleFunc("/write_off_money", s.write_off_money)
-	http.HandleFunc("/transfer_money", s.transfer_money)
+	http.HandleFunc("/get_balance", s.getBalance)
+	http.HandleFunc("/get_user_history", s.getUserHistory)
+	http.HandleFunc("/top_up_balance", s.topUpBalance)
+	http.HandleFunc("/write_off_money", s.writeOffMoney)
+	http.HandleFunc("/transfer_money", s.transferMoney)
 	log.Println("Starting server on :3000...")
 	log.Fatal(http.ListenAndServe(":3000", nil))
-	if err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
-	}
 	//  go mod init avito_server
 	//  export GO111MODULE="on"
 	// 	go get -u github.com/lib/pq
