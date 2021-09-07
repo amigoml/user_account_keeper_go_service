@@ -1,5 +1,5 @@
 
-[<!--lint ignore no-dead-urls-->![GitHub Actions status | sdras/awesome-actions](https://github.com/amigoml/account_keeper/workflows/CI/badge.svg)](https://github.com/amigoml/account_keeper/actions?workflow=CI)
+[<!--lint ignore no-dead-urls-->![GitHub Actions status | amigoml/user_account_keeper](https://github.com/amigoml/user_account_keeper/workflows/CI/badge.svg)](https://github.com/amigoml/user_account_keeper/actions?workflow=CI)
 
 
 ## Задача
