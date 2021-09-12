@@ -8,11 +8,11 @@ URL = 'http://' + HOST + ':' + PORT
 def test_handles():
     r = requests.get(URL + '/' + "get_balance", params={'user_id': '3'})
     res = r.json()
-    assert 'Response' in res and res['Response'] == 'there is no rows with given user_id'
+    assert 'Error' in res and res['Error'] == 'there is no rows with given user_id'
 
     r = requests.get(URL + '/' + "get_balance", params={'user_id': '4'})
     res = r.json()
-    assert 'Response' in res and res['Response'] == 'there is no rows with given user_id'
+    assert 'Error' in res and res['Error'] == 'there is no rows with given user_id'
 
     r = requests.get(URL + '/' + "top_up_balance", params={'user_id': '3', 'accrued_amount': '100'})
     res = r.json()

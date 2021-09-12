@@ -40,7 +40,7 @@ type history struct {
 func responseError(w http.ResponseWriter, message string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
+	json.NewEncoder(w).Encode(map[string]string{"Error": message})
 }
 
 func responseJSON(w http.ResponseWriter, response []byte) {
